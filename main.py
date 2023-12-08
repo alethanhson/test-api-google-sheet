@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 app = FastAPI()
 
@@ -51,7 +53,8 @@ def get_sheet():
             print(f"Failed to get sheet: {e}")
 
     if result and result['values']:
-        return {"result": result['values']}
+        data = result.get('values', [])
+        return {"result": data}
     else:
         return {"message": "Failed to get sheet."}
 
@@ -91,9 +94,11 @@ def update_sheet():
             body = {
                 'values': values
             }
-
+            rangeLast = getRangSheet()
+            if not rangeLast:
+                rangeLast = RANGE_NAME
             result = service.spreadsheets().values().update(
-                spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME,
+                spreadsheetId=SPREADSHEET_ID, range=rangeLast,
                 valueInputOption=value_input_option, body=body).execute()
             return {"result", result}
         except Exception as e:
@@ -118,9 +123,49 @@ def update_sheet_multiple():
                 'values': values
             }
 
+            rangeLast = getRangSheet()
+            if not rangeLast:
+                rangeLast = RANGE_NAME
             result = service.spreadsheets().values().update(
-                spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME,
+                spreadsheetId=SPREADSHEET_ID, range=rangeLast,
                 valueInputOption=value_input_option, body=body).execute()
             return {"result", result}
         except Exception as e:
             print(f"Failed to update sheet: {e}")
+
+
+@app.get("/update-sheet-by-value/{value}")
+def update_sheet_by_value(value: str):
+    if service:
+        try:
+            filter_criteria = {
+                'columnIndex': 0,
+                'values': ['Value to Filter']
+            }
+            credentials = ServiceAccountCredentials.from_json_keyfile_name(
+                'credentials.json', ['https://www.googleapis.com/auth/spreadsheets'])
+            client = gspread.authorize(credentials)
+            spreadsheet = client.open_by_key(SPREADSHEET_ID)
+            sheet = spreadsheet.worksheet('Sheet1')
+            list_of_lists = sheet.findall('j11292@example.com', in_column=8)
+            
+            matching_rows = []
+            for cell in list_of_lists:
+                row = cell.row
+                value_b = sheet.cell(row, 6)
+                print(value_b)
+                if value_b == 'USAA':
+                    matching_rows.append(row)
+
+            return matching_rows
+        except Exception as e:
+            print(f"Failed to update sheet: {e}")
+
+
+def getRangSheet():
+    response = service.spreadsheets().values().get(
+        spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
+    if response and 'values' in response:
+        return "Sheet1!A" + str(len(response['values']) + 1) + ":Z"
+    else:
+        return False
